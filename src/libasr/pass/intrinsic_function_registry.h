@@ -58,6 +58,7 @@ enum class IntrinsicScalarFunctions : int64_t {
     Leadz,
     Digits,
     Repeat,
+    Adjustl,
     Hypot,
     MinExponent,
     MaxExponent,
@@ -146,6 +147,7 @@ inline std::string get_intrinsic_name(int x) {
         INTRINSIC_NAME_CASE(Leadz)
         INTRINSIC_NAME_CASE(Digits)
         INTRINSIC_NAME_CASE(Repeat)
+        INTRINSIC_NAME_CASE(Adjustl)
         INTRINSIC_NAME_CASE(Hypot)
         INTRINSIC_NAME_CASE(MinExponent)
         INTRINSIC_NAME_CASE(MaxExponent)
@@ -3384,6 +3386,93 @@ namespace Repeat {
 
 } // namespace Repeat
 
+namespace Adjustl {
+
+    static ASR::expr_t *eval_Adjustl(Allocator &al, const Location &loc,
+            ASR::ttype_t* t1, Vec<ASR::expr_t*> &args) {
+        char* str = ASR::down_cast<ASR::StringConstant_t>(args[0])->m_s;
+        size_t len = std::strlen(str);
+        char* result = new char[len+1];
+        size_t i,j;
+        for(j=0;j<len;j++)  {
+            if(str[j]!=' '){
+                break;
+            }
+        }
+        for (i=0; j<len; i++,j++) {
+            result[i] = str[j];
+        }
+        for(;i<len;i++){
+            str[i] = ' ';
+        }
+        result[len] = '\0';
+        return make_ConstantWithType(make_StringConstant_t, result, t1, loc);
+    }
+
+    static inline ASR::asr_t* create_Adjustl(Allocator& al, const Location& loc,
+            Vec<ASR::expr_t*>& args,
+            const std::function<void (const std::string &, const Location &)> err) {
+        if (args.size() != 1) {
+            err("Intrinsic adjustl function accepts exactly 1 argument", loc);
+        }
+        ASR::ttype_t *type1 = ASRUtils::expr_type(args[0]);
+        if (!ASRUtils::is_character(*type1)) {
+            err("Argument of the adjustl function must be a String",
+                args[0]->base.loc);
+        }
+        ASR::expr_t *m_value = nullptr;
+        if (all_args_evaluated(args)) {
+            Vec<ASR::expr_t*> arg_values; arg_values.reserve(al, 1);
+            arg_values.push_back(al, expr_value(args[0]));
+            m_value = eval_Adjustl(al, loc, expr_type(args[0]), arg_values);
+        }
+        return ASR::make_IntrinsicScalarFunction_t(al, loc,
+            static_cast<int64_t>(IntrinsicScalarFunctions::Adjustl),
+            args.p, args.n, 0, expr_type(args[0]), m_value);
+    }
+
+    static inline ASR::expr_t* instantiate_Adjustl(Allocator &al, const Location &loc,
+            SymbolTable *scope, Vec<ASR::ttype_t*>& arg_types, ASR::ttype_t *return_type,
+            Vec<ASR::call_arg_t>& new_args, int64_t /*overload_id*/) {
+        declare_basic_variables("_lcompilers_optimization_adjustl_" + type_to_str_python(arg_types[0]));
+        fill_func_arg("s", arg_types[0]);
+        auto result = declare(fn_name, ASRUtils::TYPE(ASR::make_Character_t(al, loc, 1, -10, nullptr)));
+        auto itr = declare("i", ASRUtils::TYPE(ASR::make_Integer_t(al, loc, 4)));
+
+        /*
+            function adjustl_(s) result(r)
+                character(len=*), intent(in) :: s
+                character(len=len(s)) :: r
+                integer :: i
+                i = 1
+                do while (i <= len(s) .and. s(i:i) == ' ')
+                    i = i + 1
+                end do
+                r = s(i:)
+            end function
+        */
+
+        ASR::expr_t* empty_str =  StringConstant("", ASRUtils::TYPE(
+            ASR::make_Character_t(al, loc, 1, 0, nullptr)));
+        body.push_back(al, b.Assignment(result, empty_str));
+        body.push_back(al, b.Assignment(itr, i(1, arg_types[0])));
+
+        ASR::expr_t *cond = b.Land(b.Le(itr, iLen(arg_types[0])), b.Eq(b.Subscript(arg_types[0], itr), c(' ')));
+        std::vector<ASR::stmt_t*> while_loop_body;
+        while_loop_body.push_back(b.If(cond, {b.Assignment(itr, b.Add(itr, i(1)))}, {}));
+        body.push_back(al, b.While(cond, while_loop_body));
+
+        body.push_back(al, b.Assignment(result, b.Concat(b.Substring(arg_types[0], itr, iLen(arg_types[0]))),b.Substring(arg_types[0], i(1, arg_types[0]), itr)));
+
+        ASR::symbol_t *f_sym = make_ASR_Function_t(fn_name, fn_symtab, dep, args,
+            body, result, ASR::abiType::Source, ASR::deftypeType::Implementation, nullptr);
+        scope->add_symbol(fn_name, f_sym);
+        return b.Call(f_sym, new_args, return_type, nullptr);
+    }
+
+
+} // namespace Adjustl
+
 namespace MinExponent {
 
     static ASR::expr_t *eval_MinExponent(Allocator &al, const Location &loc,
@@ -4733,6 +4822,8 @@ namespace IntrinsicScalarFunctionRegistry {
             {&Digits::instantiate_Digits, &Digits::verify_args}},
         {static_cast<int64_t>(IntrinsicScalarFunctions::Repeat),
             {&Repeat::instantiate_Repeat, &Repeat::verify_args}},
+        {static_cast<int64_t>(IntrinsicScalarFunctions::Adjustl),
+            {&Adjustl::instantiate_Adjustl, &Adjustl::verify_args}},
         {static_cast<int64_t>(IntrinsicScalarFunctions::MinExponent),
             {&MinExponent::instantiate_MinExponent, &MinExponent::verify_args}},
         {static_cast<int64_t>(IntrinsicScalarFunctions::MaxExponent),
@@ -4892,6 +4983,8 @@ namespace IntrinsicScalarFunctionRegistry {
             "Digits"},
         {static_cast<int64_t>(IntrinsicScalarFunctions::Repeat),
             "Repeat"},
+        {static_cast<int64_t>(IntrinsicScalarFunctions::Adjustl),
+            "Adjustl"},
         {static_cast<int64_t>(IntrinsicScalarFunctions::MinExponent),
             "minexponent"},
         {static_cast<int64_t>(IntrinsicScalarFunctions::MaxExponent),
@@ -5022,6 +5115,7 @@ namespace IntrinsicScalarFunctionRegistry {
                 {"rank", {&Rank::create_Rank, &Rank::eval_Rank}},
                 {"digits", {&Digits::create_Digits, &Digits::eval_Digits}},
                 {"repeat", {&Repeat::create_Repeat, &Repeat::eval_Repeat}},
+                {"adjustl", {&Adjustl::create_Adjustl, &Adjustl::eval_Adjustl}},
                 {"minexponent", {&MinExponent::create_MinExponent, &MinExponent::eval_MinExponent}},
                 {"maxexponent", {&MaxExponent::create_MaxExponent, &MaxExponent::eval_MaxExponent}},
                 {"list.index", {&ListIndex::create_ListIndex, &ListIndex::eval_list_index}},
