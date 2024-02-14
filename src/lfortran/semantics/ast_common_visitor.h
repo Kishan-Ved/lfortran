@@ -2638,6 +2638,32 @@ public:
                                                 cast->m_value = ASRUtils::expr_value(array_const);
                                                 value = cast->m_value;
                                             }
+                                        } else if (cast_kind == ASR::cast_kindType::RealToComplex) {
+                                            bool is_complex = true;
+                                            ASR::ArrayConstant_t *a = ASR::down_cast<ASR::ArrayConstant_t>(cast->m_arg);
+                                            ASR::ttype_t* complex_type = cast->m_type;
+                                            Vec<ASR::expr_t*> body;
+                                            body.reserve(al, a->n_args);
+                                            for (size_t i = 0; i < a->n_args; i++) {
+                                                ASR::expr_t *e = a->m_args[i];
+                                                // it will be RealConstant_t convert it to ComplexConstant_t
+                                                if (ASR::is_a<ASR::RealConstant_t>(*e)) {
+                                                    ASR::RealConstant_t *real_const = ASR::down_cast<ASR::RealConstant_t>(e);
+                                                    double val = real_const->m_r;
+                                                    double y_val_ = 0.0;
+                                                    ASR::expr_t *complex_const = ASRUtils::EXPR(ASR::make_ComplexConstant_t(al, real_const->base.base.loc,
+                                                        val, y_val_, ASRUtils::type_get_past_array(complex_type)));
+                                                    body.push_back(al, complex_const);
+                                                } else {
+                                                    is_complex = false;
+                                                    break;
+                                                }
+                                            }
+                                            if (is_complex) {
+                                                ASR::expr_t* array_const = ASRUtils::EXPR(ASRUtils::make_ArrayConstant_t_util(al, a->base.base.loc, body.p, body.size(), complex_type, a->m_storage_format));
+                                                cast->m_value = ASRUtils::expr_value(array_const);
+                                                value = cast->m_value;
+                                            }
                                         } else if (cast_kind == ASR::cast_kindType::ComplexToReal) {
                                             bool is_real = true;
                                             ASR::ArrayConstant_t *a = ASR::down_cast<ASR::ArrayConstant_t>(cast->m_arg);
